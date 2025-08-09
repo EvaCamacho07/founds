@@ -1,0 +1,19 @@
+# Backend environment variables
+.env
+
+# Node modules
+node_modules/
+
+# Build files
+dist/
+build/
+
+# Logs
+*.log
+logs/
+
+# Test coverage
+coverage/
+
+# TypeScript build info
+*.tsbuildinfo

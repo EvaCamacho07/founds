@@ -1,0 +1,62 @@
+/* Reset default styles */
+.App {
+  text-align: left;
+}
+
+/* Custom styles for the pension fund app */
+.MuiAppBar-root {
+  background: linear-gradient(45deg, #1976d2 30%, #1565c0 90%) !important;
+}
+
+.fund-card {
+  transition: transform 0.2s ease-in-out;
+}
+
+.fund-card:hover {
+  transform: translateY(-2px);
+}
+
+.notification-unread {
+  border-left: 4px solid #f44336;
+}
+
+.transaction-row:hover {
+  background-color: rgba(25, 118, 210, 0.04);
+}
+
+/* Colombian peso currency formatting */
+.currency-cop {
+  font-weight: 600;
+  color: #1976d2;
+}
+
+/* Loading spinner container */
+.loading-container {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 200px;
+}
+
+/* Custom scrollbar for notification list */
+.notification-list {
+  max-height: 400px;
+  overflow-y: auto;
+}
+
+.notification-list::-webkit-scrollbar {
+  width: 6px;
+}
+
+.notification-list::-webkit-scrollbar-track {
+  background: #f1f1f1;
+}
+
+.notification-list::-webkit-scrollbar-thumb {
+  background: #888;
+  border-radius: 3px;
+}
+
+.notification-list::-webkit-scrollbar-thumb:hover {
+  background: #555;
+}
