@@ -99,7 +99,7 @@ const NotificationSettings: React.FC = () => {
 
   const loadNotificationSettings = async () => {
     try {
-      const response = await axios.get(`http://localhost:3000/api/user/notification-preference/user123`);
+      const response = await axios.get(`https://2707pya55l.execute-api.us-east-1.amazonaws.com/dev/api/users/user123`);
       console.log('Configuración de notificaciones desde DynamoDB:', response.data);
       
       if (response.data) {
@@ -174,7 +174,7 @@ const NotificationSettings: React.FC = () => {
 
     setSaving(true);
     try {
-      await axios.patch(`http://localhost:3000/api/user/notification-preferences`, {
+      await axios.put(`https://2707pya55l.execute-api.us-east-1.amazonaws.com/dev/api/users/user123`, {
         userId: 'user123',
         preferredMethod: settings.preferredMethod,
         email: settings.email,

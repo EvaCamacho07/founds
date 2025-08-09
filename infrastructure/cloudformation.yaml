@@ -1,5 +1,5 @@
 AWSTemplateFormatVersion: '2010-09-09'
-Description: 'Infrastructure for BTG Pactual Pension Fund Management System - Simplified Version'
+Description: 'Complete Infrastructure for BTG Pactual Pension Fund Management System - Frontend & Backend Deployment'
 
 Parameters:
   Environment:
@@ -13,7 +13,139 @@ Parameters:
     Default: 'btg-pension'
     Description: 'Prefix for DynamoDB table names (matches DYNAMODB_TABLE_PREFIX in .env)'
 
+  # SendGrid Configuration
+  SendGridApiKey:
+    Type: String
+    NoEcho: true
+    Description: 'SendGrid API Key for email notifications'
+    Default: 'REPLACE_WITH_YOUR_SENDGRID_API_KEY'
+
+  FromEmail:
+    Type: String
+    Description: 'Email address for sending notifications'
+    Default: 'ecamachoecamacho@gmail.com'
+
+  # Twilio Configuration (Optional)
+  TwilioAccountSid:
+    Type: String
+    Description: 'Twilio Account SID for SMS notifications'
+    Default: 'REPLACE_WITH_YOUR_TWILIO_SID'
+
+  TwilioAuthToken:
+    Type: String
+    NoEcho: true
+    Description: 'Twilio Auth Token for SMS notifications'
+    Default: 'REPLACE_WITH_YOUR_TWILIO_TOKEN'
+
+  TwilioFromNumber:
+    Type: String
+    Description: 'Twilio phone number for sending SMS'
+    Default: '+573001661010'
+
 Resources:
+  # S3 Bucket for Lambda Code
+  LambdaCodeBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub '${TablePrefix}-lambda-code-${Environment}-${AWS::AccountId}'
+      VersioningConfiguration:
+        Status: Enabled
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Application
+          Value: 'btg-pension-funds'
+
+  # S3 Bucket for Frontend Hosting
+  FrontendBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub '${TablePrefix}-frontend-${Environment}-${AWS::AccountId}'
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: false
+        BlockPublicPolicy: false
+        IgnorePublicAcls: false
+        RestrictPublicBuckets: false
+      WebsiteConfiguration:
+        IndexDocument: index.html
+        ErrorDocument: index.html
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Application
+          Value: 'btg-pension-funds'
+
+  # CloudFront Origin Access Identity
+  OriginAccessIdentity:
+    Type: AWS::CloudFront::CloudFrontOriginAccessIdentity
+    Properties:
+      CloudFrontOriginAccessIdentityConfig:
+        Comment: !Sub 'OAI for ${TablePrefix}-frontend-${Environment}'
+
+  # S3 Bucket Policy for Frontend
+  FrontendBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref FrontendBucket
+      PolicyDocument:
+        Statement:
+          - Sid: AllowCloudFrontAccess
+            Effect: Allow
+            Principal:
+              CanonicalUser: !GetAtt OriginAccessIdentity.S3CanonicalUserId
+            Action: 's3:GetObject'
+            Resource: !Sub 'arn:aws:s3:::${FrontendBucket}/*'
+
+  # CloudFront Distribution for Frontend
+  FrontendDistribution:
+    Type: AWS::CloudFront::Distribution
+    Properties:
+      DistributionConfig:
+        Origins:
+          - DomainName: !GetAtt FrontendBucket.RegionalDomainName
+            Id: !Sub '${TablePrefix}-frontend-origin'
+            S3OriginConfig:
+              OriginAccessIdentity: !Sub 'origin-access-identity/cloudfront/${OriginAccessIdentity}'
+        Enabled: true
+        DefaultRootObject: index.html
+        CustomErrorResponses:
+          - ErrorCode: 404
+            ResponseCode: 200
+            ResponsePagePath: /index.html
+          - ErrorCode: 403
+            ResponseCode: 200
+            ResponsePagePath: /index.html
+        DefaultCacheBehavior:
+          AllowedMethods:
+            - DELETE
+            - GET
+            - HEAD
+            - OPTIONS
+            - PATCH
+            - POST
+            - PUT
+          TargetOriginId: !Sub '${TablePrefix}-frontend-origin'
+          ForwardedValues:
+            QueryString: false
+            Cookies:
+              Forward: none
+          ViewerProtocolPolicy: redirect-to-https
+          MinTTL: 0
+          DefaultTTL: 86400
+          MaxTTL: 31536000
+        ViewerCertificate:
+          CloudFrontDefaultCertificate: true
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Application
+          Value: 'btg-pension-funds'
+
   # DynamoDB Table: Users
   UsersTable:
     Type: AWS::DynamoDB::Table
@@ -36,7 +168,7 @@ Resources:
         - Key: TableType
           Value: 'users'
 
-  # DynamoDB Table: Subscriptions (NOT Transactions)
+  # DynamoDB Table: Subscriptions
   SubscriptionsTable:
     Type: AWS::DynamoDB::Table
     Properties:
@@ -106,11 +238,11 @@ Resources:
         - Key: TableType
           Value: 'notifications'
 
-  # IAM Role for DynamoDB Access (if needed for future Lambda functions)
-  DynamoDBAccessRole:
+  # IAM Role for Lambda Functions
+  LambdaExecutionRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Sub 'btg-pension-dynamodb-role-${Environment}'
+      RoleName: !Sub '${TablePrefix}-lambda-role-${Environment}'
       AssumeRolePolicyDocument:
         Version: '2012-10-17'
         Statement:
@@ -143,42 +275,196 @@ Resources:
                   - !Sub '${SubscriptionsTable.Arn}/index/*'
                   - !Sub '${NotificationsTable.Arn}/index/*'
 
+  # API Gateway
+  ApiGateway:
+    Type: AWS::ApiGateway::RestApi
+    Properties:
+      Name: !Sub '${TablePrefix}-api-${Environment}'
+      Description: 'API Gateway for BTG Pension Fund Management System'
+      EndpointConfiguration:
+        Types:
+          - REGIONAL
+
+  # API Gateway Resource for Proxy
+  ApiGatewayResourceProxy:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      RestApiId: !Ref ApiGateway
+      ParentId: !GetAtt ApiGateway.RootResourceId
+      PathPart: '{proxy+}'
+
+  # API Gateway Method for Proxy
+  ApiGatewayMethodAny:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref ApiGateway
+      ResourceId: !Ref ApiGatewayResourceProxy
+      HttpMethod: ANY
+      AuthorizationType: NONE
+      Integration:
+        IntegrationHttpMethod: POST
+        Type: AWS_PROXY
+        Uri: !Sub 'arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${BackendLambda.Arn}/invocations'
+
+  # Lambda Function for Backend
+  BackendLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub '${TablePrefix}-backend-${Environment}'
+      Runtime: nodejs18.x
+      Handler: index.handler
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Code:
+        ZipFile: |
+          const AWS = require('aws-sdk');
+          const serverlessExpress = require('aws-serverless-express');
+          
+          // This is a placeholder. The actual code will be deployed via the deployment script
+          exports.handler = async (event, context) => {
+            return {
+              statusCode: 200,
+              headers: {
+                'Access-Control-Allow-Origin': '*',
+                'Access-Control-Allow-Headers': 'Content-Type',
+                'Access-Control-Allow-Methods': 'OPTIONS,POST,GET,PUT,DELETE',
+                'Content-Type': 'application/json'
+              },
+              body: JSON.stringify({
+                message: 'BTG Pension Fund API is initializing...',
+                status: 'placeholder',
+                timestamp: new Date().toISOString(),
+                event: event
+              })
+            };
+          };
+      Environment:
+        Variables:
+          NODE_ENV: !Ref Environment
+          DYNAMODB_TABLE_PREFIX: !Ref TablePrefix
+          REGION: !Ref AWS::Region
+          MAIL_MAILER: 'smtp'
+          MAIL_HOST: 'smtp.sendgrid.net'
+          MAIL_PORT: '587'
+          MAIL_USERNAME: 'apikey'
+          MAIL_PASSWORD: !Ref SendGridApiKey
+          MAIL_ENCRYPTION: 'tls'
+          MAIL_FROM_NAME: 'BTG Pactual'
+          MAIL_FROM_ADDRESS: !Ref FromEmail
+          SMS_ACCOUNT_SID: !Ref TwilioAccountSid
+          SMS_AUTH_TOKEN: !Ref TwilioAuthToken
+          SMS_FROM_NUMBER: !Ref TwilioFromNumber
+          TWILIO_ENABLED: 'false'
+          APP_NAME: 'BTG Pactual - Fondos de Pensión'
+      Timeout: 30
+      MemorySize: 512
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Application
+          Value: 'btg-pension-funds'
+
+  # Lambda Permission for API Gateway
+  LambdaApiGatewayPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref BackendLambda
+      Action: lambda:InvokeFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub 'arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${ApiGateway}/*/*'
+
+  # API Gateway Deployment
+  ApiGatewayDeployment:
+    Type: AWS::ApiGateway::Deployment
+    DependsOn:
+      - ApiGatewayMethodAny
+    Properties:
+      RestApiId: !Ref ApiGateway
+      StageName: !Ref Environment
+
+  # CloudWatch Log Group for Lambda
+  LambdaLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/aws/lambda/${BackendLambda}'
+      RetentionInDays: 14
+
 Outputs:
+  # Frontend Outputs
+  FrontendBucketName:
+    Description: 'S3 Bucket name for frontend hosting'
+    Value: !Ref FrontendBucket
+    Export:
+      Name: !Sub '${TablePrefix}-frontend-bucket-${Environment}'
+
+  FrontendURL:
+    Description: 'CloudFront URL for the frontend application'
+    Value: !Sub 'https://${FrontendDistribution.DomainName}'
+    Export:
+      Name: !Sub '${TablePrefix}-frontend-url-${Environment}'
+
+  FrontendS3URL:
+    Description: 'S3 Website URL for the frontend (direct access)'
+    Value: !GetAtt FrontendBucket.WebsiteURL
+    Export:
+      Name: !Sub '${TablePrefix}-frontend-s3-url-${Environment}'
+
+  # Backend Outputs
+  ApiGatewayUrl:
+    Description: 'API Gateway endpoint URL for backend'
+    Value: !Sub 'https://${ApiGateway}.execute-api.${AWS::Region}.amazonaws.com/${Environment}'
+    Export:
+      Name: !Sub '${TablePrefix}-api-url-${Environment}'
+
+  LambdaFunctionName:
+    Description: 'Lambda Function Name for backend'
+    Value: !Ref BackendLambda
+    Export:
+      Name: !Sub '${TablePrefix}-lambda-name-${Environment}'
+
+  LambdaCodeBucketName:
+    Description: 'S3 Bucket for Lambda deployment packages'
+    Value: !Ref LambdaCodeBucket
+    Export:
+      Name: !Sub '${TablePrefix}-lambda-bucket-${Environment}'
+
+  # Database Outputs
   UsersTableName:
-    Description: 'Name of the Users DynamoDB table'
+    Description: 'DynamoDB Users table name'
     Value: !Ref UsersTable
     Export:
-      Name: !Sub 'btg-pension-users-table-${Environment}'
+      Name: !Sub '${TablePrefix}-users-table-${Environment}'
 
   SubscriptionsTableName:
-    Description: 'Name of the Subscriptions DynamoDB table'
+    Description: 'DynamoDB Subscriptions table name'
     Value: !Ref SubscriptionsTable
     Export:
-      Name: !Sub 'btg-pension-subscriptions-table-${Environment}'
+      Name: !Sub '${TablePrefix}-subscriptions-table-${Environment}'
 
   NotificationsTableName:
-    Description: 'Name of the Notifications DynamoDB table'
+    Description: 'DynamoDB Notifications table name'
     Value: !Ref NotificationsTable
     Export:
-      Name: !Sub 'btg-pension-notifications-table-${Environment}'
+      Name: !Sub '${TablePrefix}-notifications-table-${Environment}'
 
-  DynamoDBRegion:
-    Description: 'AWS Region for DynamoDB tables'
+  # Configuration Outputs
+  Region:
+    Description: 'AWS Region where resources are deployed'
     Value: !Ref AWS::Region
     Export:
-      Name: !Sub 'btg-pension-region-${Environment}'
+      Name: !Sub '${TablePrefix}-region-${Environment}'
 
   TablePrefix:
-    Description: 'Prefix used for table names'
+    Description: 'Table prefix used for DynamoDB tables'
     Value: !Ref TablePrefix
     Export:
-      Name: !Sub 'btg-pension-table-prefix-${Environment}'
+      Name: !Sub '${TablePrefix}-table-prefix-${Environment}'
 
-  SetupCommand:
-    Description: 'Command to deploy this stack'
+  # Deployment Commands
+  DeploymentCommands:
+    Description: 'Commands to deploy backend and frontend code'
     Value: !Sub |
-      aws cloudformation deploy \
-        --template-file infrastructure/cloudformation.yaml \
-        --stack-name btg-pension-${Environment} \
-        --capabilities CAPABILITY_NAMED_IAM \
-        --parameter-overrides Environment=${Environment} TablePrefix=${TablePrefix}
+      # Deploy Backend:
+      cd infrastructure && .\deploy-backend.ps1 -Environment ${Environment} -Region ${AWS::Region}
+      
+      # Deploy Frontend:
+      cd infrastructure && .\deploy-frontend.ps1 -Environment ${Environment} -Region ${AWS::Region}

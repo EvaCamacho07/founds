@@ -56,11 +56,21 @@ const TransactionHistory: React.FC = () => {
     try {
       setLoading(true);
       
-      // Obtener transacciones desde el backend DynamoDB
-      const response = await axios.get('http://localhost:3000/api/user/user123/transactions');
+      const response = await axios.get('https://2707pya55l.execute-api.us-east-1.amazonaws.com/dev/api/transactions/user123');
       
       if (response.data.success) {
-        setTransactions(response.data.transactions || []);
+        const mappedTransactions = (response.data.data || []).map((transaction: any) => ({
+          id: transaction.transactionId || transaction.id || 'unknown',
+          userId: transaction.userId || 'user123',
+          fundId: transaction.fundId?.toString() || 'unknown',
+          fundName: transaction.fundName || 'Fondo desconocido',
+          type: transaction.type || 'subscription',
+          amount: transaction.amount || 0,
+          createdAt: transaction.timestamp || transaction.createdAt || new Date().toISOString(),
+          status: 'completed'
+        }));
+        
+        setTransactions(mappedTransactions);
       } else {
         throw new Error(response.data.error || 'Error al obtener transacciones');
       }
@@ -73,7 +83,6 @@ const TransactionHistory: React.FC = () => {
         severity: 'error'
       });
       
-      // En caso de error, mostrar array vacío en lugar de mock data
       setTransactions([]);
     } finally {
       setLoading(false);

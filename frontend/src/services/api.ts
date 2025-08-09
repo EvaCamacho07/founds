@@ -1,7 +1,7 @@
 import axios from 'axios';
 
 // Configure axios defaults
-const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:3000/api';
+const API_BASE_URL = process.env.REACT_APP_API_URL || 'https://2707pya55l.execute-api.us-east-1.amazonaws.com/dev/api';
 
 const api = axios.create({
   baseURL: API_BASE_URL,

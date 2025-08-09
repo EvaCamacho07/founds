@@ -31,7 +31,7 @@ import axios from "axios";
 interface Fund {
   id: number;
   name: string;
-  category: string;
+  type: string;
   minimumAmount: number;
   description: string;
   subscribed?: boolean;
@@ -47,6 +47,7 @@ interface UserBalance {
     fundName: string;
     amount: number;
     subscriptionDate: string;
+    status: string; 
   }>;
 }
 
@@ -85,8 +86,9 @@ const FundDashboard: React.FC = () => {
     // Actualizar fondos con información de suscripciones cuando cambie userBalance
     if (funds.length > 0) {
       const fundsWithSubscriptions = funds.map((fund: Fund) => {
+        // Solo considerar suscripciones activas (no canceladas)
         const subscription = userBalance.subscriptions.find(
-          (sub) => sub.fundId === fund.id
+          (sub) => sub.fundId === fund.id && sub.status === 'active'
         );
         return {
           ...fund,
@@ -101,9 +103,8 @@ const FundDashboard: React.FC = () => {
 
   const fetchFunds = async () => {
     try {
-      const response = await axios.get("http://localhost:3000/api/funds");
-      console.log("Fondos recibidos del backend:", response.data);
-      setFunds(response.data);
+      const response = await axios.get("https://2707pya55l.execute-api.us-east-1.amazonaws.com/dev/api/funds");
+      setFunds(response.data.data || response.data || []);
     } catch (error) {
       console.error("Error fetching funds:", error);
       setSnackbar({
@@ -118,29 +119,19 @@ const FundDashboard: React.FC = () => {
 
   const loadUserData = async () => {
     try {
-      // Cargar datos del usuario desde DynamoDB
-      const balanceResponse = await axios.get(
-        "http://localhost:3000/api/user/user123/balance"
-      );
-      const subscriptionsResponse = await axios.get(
-        "http://localhost:3000/api/user/user123/subscriptions"
+      const userResponse = await axios.get(
+        "https://2707pya55l.execute-api.us-east-1.amazonaws.com/dev/api/users/user123"
       );
 
-      console.log("Balance desde DynamoDB:", balanceResponse.data);
-      console.log("Suscripciones desde DynamoDB:", subscriptionsResponse.data);
-
-      // El backend devuelve { success: true, balance: {...} }
-      const balance = balanceResponse.data.balance || balanceResponse.data;
-      const subscriptions = subscriptionsResponse.data.subscriptions || [];
+      const userData = userResponse.data.data || userResponse.data;
 
       setUserBalance({
-        availableBalance: balance.availableBalance || 500000,
-        totalInvested: balance.totalInvested || 0,
-        subscriptions: subscriptions,
+        availableBalance: userData.availableBalance || 500000,
+        totalInvested: userData.totalInvested || 0,
+        subscriptions: userData.subscriptions || [],
       });
     } catch (error) {
       console.error("Error loading user data from DynamoDB:", error);
-      // Fallback a balance inicial si no existe en DynamoDB
       setUserBalance({
         availableBalance: 500000,
         totalInvested: 0,
@@ -169,19 +160,27 @@ const FundDashboard: React.FC = () => {
   const handleCancelSubscription = async (fund: Fund) => {
     try {
       const subscription = userBalance.subscriptions.find(
-        (sub) => sub.fundId === fund.id
+        (sub) => sub.fundId === fund.id && sub.status === 'active'
       );
-      if (!subscription) return;
+      if (!subscription) {
+        setSnackbar({
+          open: true,
+          message: 'No hay suscripción activa para cancelar',
+          severity: 'error',
+        });
+        return;
+      }
 
-      // Cancelar suscripción en DynamoDB usando el subscriptionId correcto
-      await axios.delete(
-        `http://localhost:3000/api/user/user123/subscription/${subscription.subscriptionId}`
+      await axios.post(
+        `https://2707pya55l.execute-api.us-east-1.amazonaws.com/dev/api/transactions/cancel`,
+        {
+          userId: "user123",
+          subscriptionId: subscription.subscriptionId
+        }
       );
 
-      // Recargar datos del usuario después de la cancelación
       await loadUserData();
 
-      // Actualizar estado del fondo
       setFunds((prev) =>
         prev.map((f) =>
           f.id === fund.id
@@ -190,9 +189,8 @@ const FundDashboard: React.FC = () => {
         )
       );
 
-      // Crear notificación
       try {
-        await axios.post("http://localhost:3000/api/notifications", {
+        await axios.post("https://2707pya55l.execute-api.us-east-1.amazonaws.com/dev/api/notifications", {
           userId: "user123",
           type: "email",
           title: "Cancelación Exitosa",
@@ -228,7 +226,6 @@ const FundDashboard: React.FC = () => {
     const amount = parseInt(subscriptionDialog.amount);
     const fund = subscriptionDialog.fund;
 
-    // Validaciones previas al request
     if (amount < fund.minimumAmount) {
       setSnackbar({
         open: true,
@@ -252,16 +249,14 @@ const FundDashboard: React.FC = () => {
     }
 
     try {
-      await axios.post(`http://localhost:3000/api/user/user123/subscribe`, {
+      const response = await axios.post(`https://2707pya55l.execute-api.us-east-1.amazonaws.com/dev/api/transactions/subscribe`, {
+        userId: "user123",
         fundId: fund.id,
-        fundName: fund.name,
         amount: amount,
       });
 
-      // Recargar datos del usuario
       await loadUserData();
 
-      // Actualizar estado del fondo
       setFunds((prev) =>
         prev.map((f) =>
           f.id === fund.id
@@ -270,9 +265,8 @@ const FundDashboard: React.FC = () => {
         )
       );
 
-      // Notificación
       try {
-        await axios.post("http://localhost:3000/api/notifications", {
+        await axios.post("https://2707pya55l.execute-api.us-east-1.amazonaws.com/dev/api/notifications", {
           userId: "user123",
           type: "email",
           title: "Suscripción Exitosa",
@@ -301,7 +295,6 @@ const FundDashboard: React.FC = () => {
     } catch (error: any) {
       console.error("Error subscribing to fund:", error);
 
-      // Detectar si el backend devolvió un mensaje específico
       const backendMessage =
         error.response?.data?.error || "Error al procesar la suscripción";
       setSnackbar({
@@ -378,7 +371,7 @@ const FundDashboard: React.FC = () => {
             <Box textAlign="center">
               <Typography variant="h6">Fondos Suscritos</Typography>
               <Typography variant="h4">
-                {userBalance.subscriptions.length}
+                {userBalance.subscriptions.filter(sub => sub.status === 'active').length}
               </Typography>
             </Box>
           </Box>
@@ -398,7 +391,7 @@ const FundDashboard: React.FC = () => {
           >
             <CardContent sx={{ flexGrow: 1 }}>
               <Box display="flex" alignItems="center" gap={1} mb={2}>
-                {getFundIcon(fund.category)}
+                {getFundIcon(fund.type)}
                 <Typography variant="h6" component="h2">
                   {fund.name}
                 </Typography>
@@ -410,8 +403,8 @@ const FundDashboard: React.FC = () => {
 
               <Box display="flex" gap={1} mb={2}>
                 <Chip
-                  label={fund.category}
-                  color={getCategoryColor(fund.category) as any}
+                  label={fund.type}
+                  color={getCategoryColor(fund.type) as any}
                   size="small"
                 />
                 {fund.subscribed && (

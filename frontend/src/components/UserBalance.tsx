@@ -53,8 +53,8 @@ const UserBalance: React.FC = () => {
   const loadUserData = async () => {
     try {
       // Cargar datos del usuario desde DynamoDB
-      const balanceResponse = await fetch('http://localhost:3000/api/user/user123/balance');
-      const subscriptionsResponse = await fetch('http://localhost:3000/api/user/user123/subscriptions');
+      const balanceResponse = await fetch('https://2707pya55l.execute-api.us-east-1.amazonaws.com/dev/api/users/user123');
+      const subscriptionsResponse = await fetch('https://2707pya55l.execute-api.us-east-1.amazonaws.com/dev/api/subscriptions/user123');
       
       if (balanceResponse.ok && subscriptionsResponse.ok) {
         const balanceData = await balanceResponse.json();
